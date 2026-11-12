@@ -1,0 +1,11 @@
+# PDFBox-Android uses reflection for fonts/filters and optional JP2/JBIG2 codecs.
+-keep class com.tom_roush.pdfbox.** { *; }
+-keep class com.tom_roush.fontbox.** { *; }
+-keep class com.tom_roush.harmony.** { *; }
+-dontwarn com.gemalto.jp2.**
+-dontwarn com.tom_roush.pdfbox.filter.**
+-dontwarn org.bouncycastle.**
+-dontwarn javax.xml.**
+-dontwarn org.xmlpull.**
+-keep class org.xmlpull.** { *; }
+-keepattributes *Annotation*, Signature, InnerClasses

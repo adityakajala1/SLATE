@@ -1,0 +1,7 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="slate_bg">#111111</color>
+    <color name="slate_surface">#1C1C1C</color>
+    <color name="slate_text">#FFFFFF</color>
+    <color name="splash_bg">#111111</color>
+</resources>

@@ -1,0 +1,19 @@
+# Gradle / Android build outputs
+.gradle/
+build/
+app/build/
+
+# Local environment & IDE files
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# Signing keys & secrets (never commit release keystores)
+keystore/
+*.jks
+*.keystore
+
+# Built APKs (distribute via GitHub Releases instead)
+*.apk
+*.aab
