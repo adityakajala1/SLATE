@@ -137,6 +137,40 @@ fun HomeScreen(
             }
         }
 
+        // Reading Insights Strip (Aesthetic Minimalist Stats)
+        item {
+            val totalDocs = recents.size
+            val activeReadingDocs = recents.count { it.position > 0 }
+            val completedDocs = recents.count { it.total > 0 && it.position >= it.total }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ReadingStatPill(
+                    icon = Icons.Outlined.MenuBook,
+                    label = "Library",
+                    value = "$totalDocs docs",
+                    modifier = Modifier.weight(1f),
+                )
+                ReadingStatPill(
+                    icon = Icons.Outlined.AutoStories,
+                    label = "In Progress",
+                    value = "$activeReadingDocs read",
+                    modifier = Modifier.weight(1f),
+                )
+                ReadingStatPill(
+                    icon = Icons.Outlined.CheckCircleOutline,
+                    label = "Finished",
+                    value = "$completedDocs done",
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+
         // Quick Access Categories
         item {
             SectionHeader("Quick Access")
@@ -418,6 +452,41 @@ private fun RecentDocumentRow(
                     append(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(doc.lastOpened)))
                 }
                 Text(meta, style = MaterialTheme.typography.bodySmall, color = Slate.colors.textSecondary, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadingStatPill(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Slate.colors.surface,
+        border = BorderStroke(1.dp, Slate.colors.border),
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Slate.colors.surfaceAlt),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = Slate.colors.text, modifier = Modifier.size(16.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Column {
+                Text(value, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(label, style = MaterialTheme.typography.labelSmall, color = Slate.colors.textSecondary, maxLines = 1)
             }
         }
     }

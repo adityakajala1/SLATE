@@ -46,9 +46,9 @@ val LightSlate = SlateColors(
 )
 
 val DarkSlate = SlateColors(
-    background = Color(0xFF111111), surface = Color(0xFF1C1C1C), surfaceAlt = Color(0xFF242424),
-    text = Color(0xFFFFFFFF), textSecondary = Color(0xFFA0A0A0), accent = Color(0xFFD0D0D0),
-    border = Color(0xFF303030), isDark = true,
+    background = Color(0xFF000000), surface = Color(0xFF121212), surfaceAlt = Color(0xFF1E1E1E),
+    text = Color(0xFFF2F2F2), textSecondary = Color(0xFFA5A5A5), accent = Color(0xFFE0E0E0),
+    border = Color(0xFF262626), isDark = true,
     pdf = Color(0xFFE07A6E), word = Color(0xFF86A6DD), sheet = Color(0xFF7CC39C), slides = Color(0xFFE5A26F),
 )
 
