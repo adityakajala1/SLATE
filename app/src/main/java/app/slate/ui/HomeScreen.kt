@@ -114,10 +114,10 @@ fun HomeScreen(
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = "SLATE",
+                        text = "Slate",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.2.sp,
+                        letterSpacing = 0.5.sp,
                     )
                     Text(
                         text = "Every document. One place.",

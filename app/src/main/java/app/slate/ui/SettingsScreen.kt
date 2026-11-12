@@ -179,13 +179,13 @@ fun SettingsScreen(
             }
         }
 
-        // About SLATE
+        // About Slate
         SlateCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SlateMark(size = 52.dp)
                 Spacer(Modifier.width(14.dp))
                 Column {
-                    Text("SLATE", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text("Slate", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                     Text("Every document. One place.", style = MaterialTheme.typography.bodyMedium, color = Slate.colors.textSecondary)
                     Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelSmall, color = Slate.colors.textSecondary)
                 }
