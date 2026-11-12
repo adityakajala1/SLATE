@@ -6,6 +6,14 @@ SLATE is a fast, lightweight, 100% advertisement-free, offline-first Android doc
 
 ---
 
+## 📸 Screenshots
+
+| Home & Workspace | Follow Developer | Offline Document Convert | Privacy & Settings |
+|:---:|:---:|:---:|:---:|
+| <img src="docs/screenshots/01_home.jpg" width="220" /> | <img src="docs/screenshots/02_follow_developer.jpg" width="220" /> | <img src="docs/screenshots/03_convert_tools.jpg" width="220" /> | <img src="docs/screenshots/04_settings_privacy.jpg" width="220" /> |
+
+---
+
 ## Features
 
 - **PDF Viewer & Toolbox** — Smooth scrolling, zoom, search, text selection, annotations, signatures, rotate/reorder/delete/extract/merge/split/compress/print, and image export.
