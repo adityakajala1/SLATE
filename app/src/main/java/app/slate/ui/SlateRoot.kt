@@ -30,11 +30,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import app.slate.convert.ConvertScreen
+import app.slate.core.AppUpdateInfo
+import app.slate.core.AppUpdateManager
 import app.slate.core.DocKind
+import app.slate.core.UpdateAvailableDialog
 import app.slate.data.Settings
 import app.slate.files.FilesScreen
 import app.slate.search.SearchScreen
 import app.slate.ui.theme.Slate
+import app.slate.BuildConfig
 
 enum class MainTab(
     val label: String,
@@ -54,6 +58,14 @@ fun SlateRoot(settings: Settings) {
     var filesInitialKindFilter by remember { mutableStateOf<DocKind?>(null) }
     var showFollowDialog by rememberSaveable { mutableStateOf(true) }
     var showDeveloperScreen by rememberSaveable { mutableStateOf(false) }
+    var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
+
+    LaunchedEffect(Unit) {
+        val update = AppUpdateManager.checkForUpdates(BuildConfig.VERSION_NAME)
+        if (update != null) {
+            availableUpdate = update
+        }
+    }
 
     if (showDeveloperScreen) {
         DeveloperScreen(onBack = { showDeveloperScreen = false })
@@ -133,6 +145,13 @@ fun SlateRoot(settings: Settings) {
                 showFollowDialog = false
                 showDeveloperScreen = true
             },
+        )
+    }
+
+    availableUpdate?.let { updateInfo ->
+        UpdateAvailableDialog(
+            updateInfo = updateInfo,
+            onDismiss = { availableUpdate = null },
         )
     }
 }
