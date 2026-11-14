@@ -145,11 +145,24 @@ object SlidesFormatCodecs {
             val relsPath = "ppt/slides/_rels/slide$slideNum.xml.rels"
             val slideRels = parseRels(entries[relsPath])
 
-            // Find linked slideLayout for placeholder inheritance
+            // Find linked slideLayout
             val layoutTarget = slideRels.values.firstOrNull { it.contains("slideLayout") }
             val layoutPath = layoutTarget?.let { resolvePptPath("ppt/slides", it) }
+            val layoutName = layoutPath?.substringAfterLast('/')
+            val layoutRelsPath = layoutName?.let { "ppt/slideLayouts/_rels/$it.rels" }
+            val layoutBytes = layoutPath?.let { entries[it] } ?: Zip.findEntry(entries, layoutPath)
+            val layoutRels = parseRels(layoutRelsPath?.let { entries[it] } ?: Zip.findEntry(entries, layoutRelsPath))
+
+            // Find linked slideMaster from slideLayout
+            val masterTarget = layoutRels.values.firstOrNull { it.contains("slideMaster") }
+            val masterPath = masterTarget?.let { resolvePptPath("ppt/slideLayouts", it) }
+            val masterName = masterPath?.substringAfterLast('/')
+            val masterRelsPath = masterName?.let { "ppt/slideMasters/_rels/$it.rels" }
+            val masterBytes = masterPath?.let { entries[it] } ?: Zip.findEntry(entries, masterPath)
+            val masterRels = parseRels(masterRelsPath?.let { entries[it] } ?: Zip.findEntry(entries, masterRelsPath))
+
             val layoutPlaceholders = parseLayoutPlaceholders(
-                layoutPath?.let { entries[it] },
+                layoutBytes,
                 slideWEmu,
                 slideHEmu,
             )
@@ -162,6 +175,10 @@ object SlidesFormatCodecs {
                 placeholders = layoutPlaceholders,
                 slideWEmu = slideWEmu,
                 slideHEmu = slideHEmu,
+                layoutBytes = layoutBytes,
+                layoutRels = layoutRels,
+                masterBytes = masterBytes,
+                masterRels = masterRels,
             )
         }
 
@@ -176,10 +193,11 @@ object SlidesFormatCodecs {
     }
 
     private fun resolvePptPath(baseDir: String, target: String): String {
-        if (target.startsWith("/")) return target.removePrefix("/")
+        val cleanTarget = target.replace('\\', '/')
+        if (cleanTarget.startsWith("/")) return cleanTarget.removePrefix("/")
         val parts = ArrayList<String>()
-        baseDir.split('/').filter { it.isNotEmpty() }.forEach { parts.add(it) }
-        for (seg in target.split('/')) {
+        baseDir.replace('\\', '/').split('/').filter { it.isNotEmpty() }.forEach { parts.add(it) }
+        for (seg in cleanTarget.split('/')) {
             when (seg) {
                 "", "." -> {}
                 ".." -> if (parts.isNotEmpty()) parts.removeAt(parts.lastIndex)
@@ -238,33 +256,37 @@ object SlidesFormatCodecs {
 
     private fun resolveColorNode(fillContainer: XmlNode?, themeColors: Map<String, Int>): Int? {
         if (fillContainer == null) return null
-        val solid = if (fillContainer.name == "solidFill") fillContainer else fillContainer.child("solidFill")
-        if (solid != null) {
-            solid.child("srgbClr")?.let { srgb ->
-                val hex = srgb.attr("val")
-                if (hex != null && hex.length == 6) {
-                    hex.toIntOrNull(16)?.let { rgb ->
-                        return applyColorTransforms(0xFF000000.toInt() or rgb, srgb)
-                    }
+        val clrContainer = fillContainer.child("solidFill") ?: fillContainer
+        clrContainer.child("srgbClr")?.let { srgb ->
+            val hex = srgb.attr("val")
+            if (hex != null && hex.length == 6) {
+                hex.toIntOrNull(16)?.let { rgb ->
+                    return applyColorTransforms(0xFF000000.toInt() or rgb, srgb)
                 }
             }
-            solid.child("schemeClr")?.let { sch ->
-                val key = sch.attr("val")
-                val base = key?.let { themeColors[it] } ?: 0xFF1E293B.toInt()
-                return applyColorTransforms(base, sch)
+        }
+        clrContainer.child("schemeClr")?.let { sch ->
+            val key = sch.attr("val")
+            val base = key?.let { themeColors[it] } ?: 0xFF1E293B.toInt()
+            return applyColorTransforms(base, sch)
+        }
+        clrContainer.child("prstClr")?.let { prst ->
+            val color = when (prst.attr("val")?.lowercase()) {
+                "white" -> 0xFFFFFFFF.toInt()
+                "black" -> 0xFF000000.toInt()
+                "red" -> 0xFFDC2626.toInt()
+                "blue" -> 0xFF2563EB.toInt()
+                "green" -> 0xFF16A34A.toInt()
+                "yellow" -> 0xFFEAB308.toInt()
+                "gray", "grey" -> 0xFF64748B.toInt()
+                else -> null
             }
-            solid.child("prstClr")?.let { prst ->
-                val color = when (prst.attr("val")?.lowercase()) {
-                    "white" -> 0xFFFFFFFF.toInt()
-                    "black" -> 0xFF000000.toInt()
-                    "red" -> 0xFFDC2626.toInt()
-                    "blue" -> 0xFF2563EB.toInt()
-                    "green" -> 0xFF16A34A.toInt()
-                    "yellow" -> 0xFFEAB308.toInt()
-                    "gray", "grey" -> 0xFF64748B.toInt()
-                    else -> null
-                }
-                if (color != null) return color
+            if (color != null) return color
+        }
+        clrContainer.child("sysClr")?.let { sys ->
+            val lastClr = sys.attr("lastClr")
+            if (lastClr != null && lastClr.length == 6) {
+                lastClr.toIntOrNull(16)?.let { rgb -> return 0xFF000000.toInt() or rgb }
             }
         }
         // Gradient fill fallback: use first gradient stop color
@@ -365,22 +387,57 @@ object SlidesFormatCodecs {
         placeholders: Map<String, PlaceholderSpec>,
         slideWEmu: Float,
         slideHEmu: Float,
+        layoutBytes: ByteArray? = null,
+        layoutRels: Map<String, String> = emptyMap(),
+        masterBytes: ByteArray? = null,
+        masterRels: Map<String, String> = emptyMap(),
     ): SlidePage {
         val root = parseXmlTree(xmlBytes) ?: return SlidePage()
         val cSld = root.child("cSld") ?: return SlidePage()
+        val layoutCSld = layoutBytes?.let { parseXmlTree(it)?.child("cSld") }
+        val masterCSld = masterBytes?.let { parseXmlTree(it)?.child("cSld") }
 
-        // 1. Slide Background (<p:bg>)
-        var bgArgb = 0xFFFFFFFF.toInt()
-        val bgNode = cSld.child("bg")
-        if (bgNode != null) {
-            resolveColorNode(bgNode.child("bgPr"), themeColors)?.let { bgArgb = it }
-            if (bgNode.child("bgPr") == null) {
-                resolveColorNode(bgNode.child("bgRef"), themeColors)?.let { bgArgb = it }
-            }
+        fun extractBgImage(bgNode: XmlNode?, currentRels: Map<String, String>, baseDir: String): ByteArray? {
+            val blip = bgNode?.child("bgPr")?.child("blipFill")?.child("blip")
+            val rId = blip?.attr("embed") ?: blip?.attr("r:embed")
+            val target = rId?.let { currentRels[it] } ?: return null
+            val path = resolvePptPath(baseDir, target)
+            return entries[path] ?: Zip.findEntry(entries, path)
         }
 
+        fun extractBgColor(bgNode: XmlNode?): Int? {
+            if (bgNode == null) return null
+            resolveColorNode(bgNode.child("bgPr"), themeColors)?.let { return it }
+            resolveColorNode(bgNode.child("bgRef"), themeColors)?.let { return it }
+            return null
+        }
+
+        val slideBg = cSld.child("bg")
+        val layoutBg = layoutCSld?.child("bg")
+        val masterBg = masterCSld?.child("bg")
+
+        val bgArgb = extractBgColor(slideBg)
+            ?: extractBgColor(layoutBg)
+            ?: extractBgColor(masterBg)
+            ?: 0xFFFFFFFF.toInt()
+
+        val bgImageBytes = extractBgImage(slideBg, rels, "ppt/slides")
+            ?: extractBgImage(layoutBg, layoutRels, "ppt/slideLayouts")
+            ?: extractBgImage(masterBg, masterRels, "ppt/slideMasters")
+
         val items = ArrayList<SlideItem>()
-        val spTree = cSld.child("spTree")
+        if (bgImageBytes != null) {
+            items.add(
+                SlideItem(
+                    kind = ShapeKind.RECTANGLE,
+                    x = 0f,
+                    y = 0f,
+                    w = 1f,
+                    h = 1f,
+                    imageBytes = bgImageBytes,
+                )
+            )
+        }
 
         fun parseTxBody(
             txBody: XmlNode?,
@@ -472,6 +529,9 @@ object SlidesFormatCodecs {
         // Recursive walker for spTree and nested grpSp
         fun walkContainer(
             container: XmlNode,
+            baseDir: String,
+            currentRels: Map<String, String>,
+            ignorePlaceholders: Boolean,
             mapX: (Float) -> Float,
             mapY: (Float) -> Float,
             scaleW: Float,
@@ -483,6 +543,8 @@ object SlidesFormatCodecs {
                     "sp", "cxnSp" -> {
                         val nvPr = node.child("nvSpPr")?.child("nvPr") ?: node.child("nvCxnSpPr")?.child("nvPr")
                         val ph = nvPr?.child("ph")
+                        if (ignorePlaceholders && ph != null) continue
+
                         val phType = ph?.attr("type")
                         val phIdx = ph?.attr("idx")
                         val phSpec = when {
@@ -520,6 +582,13 @@ object SlidesFormatCodecs {
                             isTxBox || ph != null -> ShapeKind.TEXT_BOX
                             else -> ShapeKind.RECTANGLE
                         }
+
+                        // Check shape image fill (e.g. logos or textured backgrounds inside shapes)
+                        val spBlip = spPr?.child("blipFill")?.child("blip")
+                        val spBlipRId = spBlip?.attr("embed") ?: spBlip?.attr("r:embed")
+                        val spBlipTarget = spBlipRId?.let { currentRels[it] }
+                        val spBlipPath = spBlipTarget?.let { resolvePptPath(baseDir, it) }
+                        val spBlipBytes = spBlipPath?.let { entries[it] ?: Zip.findEntry(entries, it) }
 
                         // Shape background fill (only from spPr or style/fillRef, NEVER from text runs!)
                         val hasNoFill = spPr?.child("noFill") != null
@@ -568,8 +637,8 @@ object SlidesFormatCodecs {
                             if (p.bullet.isNotEmpty()) "${p.bullet} ${p.plainText}" else p.plainText
                         }
 
-                        // Keep shape if it has text, fill, or border/line
-                        if (plainText.isNotEmpty() || fillArgb != null || strokeColorArgb != null) {
+                        // Keep shape if it has image, text, fill, or border/line
+                        if (spBlipBytes != null || plainText.isNotEmpty() || fillArgb != null || strokeColorArgb != null) {
                             val allRuns = paragraphs.flatMap { it.runs }
                             val primaryRun = allRuns.maxByOrNull { it.fontSizePt } ?: allRuns.firstOrNull()
                             val firstPara = paragraphs.firstOrNull()
@@ -595,12 +664,17 @@ object SlidesFormatCodecs {
                                     padRightPt = padR,
                                     padBottomPt = padB,
                                     paragraphs = paragraphs,
+                                    imageBytes = spBlipBytes,
                                 )
                             )
                         }
                     }
 
                     "pic" -> {
+                        val nvPicPr = node.child("nvPicPr")?.child("nvPr")
+                        val ph = nvPicPr?.child("ph")
+                        if (ignorePlaceholders && ph != null) continue
+
                         val spPr = node.child("spPr")
                         val xfrm = spPr?.child("xfrm")
                         val off = xfrm?.child("off")
@@ -612,17 +686,17 @@ object SlidesFormatCodecs {
 
                         val blip = node.child("blipFill")?.child("blip")
                         val rId = blip?.attr("embed") ?: blip?.attr("r:embed")
-                        val target = rId?.let { rels[it] }
-                        val mediaPath = target?.let { resolvePptPath("ppt/slides", it) }
-                        val imgBytes = mediaPath?.let { entries[it] }
+                        val target = rId?.let { currentRels[it] }
+                        val mediaPath = target?.let { resolvePptPath(baseDir, it) }
+                        val imgBytes = mediaPath?.let { entries[it] ?: Zip.findEntry(entries, it) }
                         if (imgBytes != null) {
                             items.add(
                                 SlideItem(
                                     kind = ShapeKind.RECTANGLE,
                                     x = mapX(rawX / slideWEmu).coerceIn(0f, 0.98f),
                                     y = mapY(rawY / slideHEmu).coerceIn(0f, 0.98f),
-                                    w = ((rawW / slideWEmu) * scaleW).coerceIn(0.02f, 1f),
-                                    h = ((rawH / slideHEmu) * scaleH).coerceIn(0.02f, 1f),
+                                    w = ((rawW / slideWEmu) * scaleW).coerceIn(0.005f, 1f),
+                                    h = ((rawH / slideHEmu) * scaleH).coerceIn(0.005f, 1f),
                                     imageBytes = imgBytes,
                                 )
                             )
@@ -711,8 +785,9 @@ object SlidesFormatCodecs {
                             // Check for chart reference (<c:chart r:id="..."/>)
                             val chartNode = graphicData?.child("chart")
                             val rId = chartNode?.attr("id") ?: chartNode?.attr("r:id")
-                            val chartTarget = rId?.let { rels[it] }
-                            val chartBytes = chartTarget?.let { entries[resolvePptPath("ppt/slides", it)] }
+                            val chartTarget = rId?.let { currentRels[it] }
+                            val chartPath = chartTarget?.let { resolvePptPath(baseDir, it) }
+                            val chartBytes = chartPath?.let { entries[it] ?: Zip.findEntry(entries, it) }
                             if (chartBytes != null) {
                                 val chartParas = parseChartSummary(chartBytes)
                                 if (chartParas.isNotEmpty()) {
@@ -758,6 +833,9 @@ object SlidesFormatCodecs {
                             val sy = gh / ch
                             walkContainer(
                                 container = node,
+                                baseDir = baseDir,
+                                currentRels = currentRels,
+                                ignorePlaceholders = ignorePlaceholders,
                                 mapX = { childNormX ->
                                     val childEmuX = childNormX * slideWEmu
                                     val mappedEmuX = gx + (childEmuX - cx) * sx
@@ -772,21 +850,26 @@ object SlidesFormatCodecs {
                                 scaleH = scaleH * sy,
                             )
                         } else {
-                            walkContainer(node, mapX, mapY, scaleW, scaleH)
+                            walkContainer(node, baseDir, currentRels, ignorePlaceholders, mapX, mapY, scaleW, scaleH)
                         }
                     }
                 }
             }
         }
 
+        val showMaster = root.child("cSld")?.attr("showMasterSp") != "0"
+        if (showMaster) {
+            masterCSld?.child("spTree")?.let {
+                walkContainer(it, "ppt/slideMasters", masterRels, ignorePlaceholders = true, { x -> x }, { y -> y }, 1f, 1f)
+            }
+            layoutCSld?.child("spTree")?.let {
+                walkContainer(it, "ppt/slideLayouts", layoutRels, ignorePlaceholders = true, { x -> x }, { y -> y }, 1f, 1f)
+            }
+        }
+
+        val spTree = cSld.child("spTree")
         if (spTree != null) {
-            walkContainer(
-                container = spTree,
-                mapX = { it },
-                mapY = { it },
-                scaleW = 1f,
-                scaleH = 1f,
-            )
+            walkContainer(spTree, "ppt/slides", rels, ignorePlaceholders = false, { x -> x }, { y -> y }, 1f, 1f)
         }
 
         return SlidePage(
@@ -1307,8 +1390,15 @@ object SlidesFormatCodecs {
             val bmp = item.decodeBitmap(1400)
             if (bmp != null) {
                 canvas.drawBitmap(bmp, null, rect, Paint(Paint.FILTER_BITMAP_FLAG))
-                drawSelectionOrHighlightOverlay(canvas, rect, scale, itemIdx == selectedItemIdx, false)
-                return@forEachIndexed
+                if (item.strokeColorArgb != null) {
+                    strokePaint.color = item.strokeColorArgb
+                    strokePaint.strokeWidth = item.strokeWidthPt * scale
+                    canvas.drawRect(rect, strokePaint)
+                }
+                if (item.paragraphs.isEmpty() && item.text.isBlank()) {
+                    drawSelectionOrHighlightOverlay(canvas, rect, scale, itemIdx == selectedItemIdx, false)
+                    return@forEachIndexed
+                }
             }
 
             // 2. Table item (<a:tbl>)

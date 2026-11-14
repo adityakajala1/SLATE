@@ -74,10 +74,44 @@ object Zip {
                 val bytes = zis.readBytes()
                 total += bytes.size
                 if (total > maxTotalBytes) throw IllegalStateException("Document is too large to open")
-                out[e.name.removePrefix("/")] = bytes
+                val cleanName = e.name.replace('\\', '/').trim().removePrefix("/")
+                out[cleanName] = bytes
             }
         }
         return out
+    }
+
+    /** Finds a zip entry tolerating case differences, slash styles, and leading paths. */
+    fun findEntry(entries: Map<String, ByteArray>, path: String?): ByteArray? {
+        if (path.isNullOrBlank()) return null
+        val norm = path.replace('\\', '/').trim().removePrefix("/").removePrefix("./")
+        entries[norm]?.let { return it }
+        for ((k, v) in entries) {
+            if (k.equals(norm, ignoreCase = true)) return v
+        }
+        val fileName = norm.substringAfterLast('/')
+        if (fileName.isNotEmpty()) {
+            for ((k, v) in entries) {
+                val kNorm = k.replace('\\', '/')
+                if (kNorm.endsWith("/$fileName", ignoreCase = true) || kNorm.equals(fileName, ignoreCase = true)) {
+                    return v
+                }
+            }
+            // If image is .svg, .emf, .wmf, fallback to rasterized counterpart if available in the archive
+            val baseName = fileName.substringBeforeLast('.')
+            val ext = fileName.substringAfterLast('.', "").lowercase()
+            if (ext in listOf("svg", "emf", "wmf")) {
+                for ((k, v) in entries) {
+                    val kNorm = k.replace('\\', '/')
+                    if (kNorm.contains(baseName, ignoreCase = true) &&
+                        (kNorm.endsWith(".png", true) || kNorm.endsWith(".jpg", true) || kNorm.endsWith(".jpeg", true))
+                    ) {
+                        return v
+                    }
+                }
+            }
+        }
+        return null
     }
 
     /** Small writer helper. ODF requires "mimetype" first and STORED; pass [storedFirst] for that. */

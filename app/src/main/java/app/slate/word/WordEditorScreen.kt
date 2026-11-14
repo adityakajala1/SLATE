@@ -656,20 +656,29 @@ fun WordEditorScreen(doc: OpenDoc, onClose: () -> Unit) {
                                             .padding(horizontal = 20.dp, vertical = 24.dp),
                                     ) {
                                         // Optional Document Header
-                                        if (model.headerParagraphs.isNotEmpty()) {
+                                        val headerItems = if (model.headerElements.isNotEmpty()) model.headerElements else model.headerParagraphs
+                                        if (headerItems.isNotEmpty()) {
                                             Column(
                                                 Modifier
                                                     .fillMaxWidth()
                                                     .padding(bottom = 12.dp),
                                             ) {
-                                                model.headerParagraphs.forEach { hp ->
-                                                    WordPageParagraphView(
-                                                        node = hp,
-                                                        fallbackNumberIndex = 0,
-                                                        defaultTextColor = defaultInkColor.copy(alpha = 0.65f),
-                                                        highlightQuery = searchQuery,
-                                                        isMatchedBlock = false,
-                                                    )
+                                                headerItems.forEach { el ->
+                                                    when (el) {
+                                                        is ParagraphNode -> WordPageParagraphView(
+                                                            node = el,
+                                                            fallbackNumberIndex = 0,
+                                                            defaultTextColor = defaultInkColor.copy(alpha = 0.65f),
+                                                            highlightQuery = searchQuery,
+                                                            isMatchedBlock = false,
+                                                        )
+                                                        is ImageNode -> WordPageImageView(image = el)
+                                                        is TableNode -> WordPageTableView(
+                                                            table = el,
+                                                            defaultTextColor = defaultInkColor.copy(alpha = 0.65f),
+                                                            highlightQuery = searchQuery,
+                                                        )
+                                                    }
                                                 }
                                                 HorizontalDivider(
                                                     Modifier.padding(top = 6.dp),
@@ -710,18 +719,27 @@ fun WordEditorScreen(doc: OpenDoc, onClose: () -> Unit) {
                                         }
 
                                         // Optional Document Footer
-                                        if (model.footerParagraphs.isNotEmpty()) {
+                                        val footerItems = if (model.footerElements.isNotEmpty()) model.footerElements else model.footerParagraphs
+                                        if (footerItems.isNotEmpty()) {
                                             Spacer(Modifier.height(16.dp))
                                             HorizontalDivider(thickness = 0.5.dp, color = Color(0xFFCBD5E1))
                                             Spacer(Modifier.height(6.dp))
-                                            model.footerParagraphs.forEach { fp ->
-                                                WordPageParagraphView(
-                                                    node = fp,
-                                                    fallbackNumberIndex = 0,
-                                                    defaultTextColor = defaultInkColor.copy(alpha = 0.65f),
-                                                    highlightQuery = searchQuery,
-                                                    isMatchedBlock = false,
-                                                )
+                                            footerItems.forEach { fp ->
+                                                when (fp) {
+                                                    is ParagraphNode -> WordPageParagraphView(
+                                                        node = fp,
+                                                        fallbackNumberIndex = 0,
+                                                        defaultTextColor = defaultInkColor.copy(alpha = 0.65f),
+                                                        highlightQuery = searchQuery,
+                                                        isMatchedBlock = false,
+                                                    )
+                                                    is ImageNode -> WordPageImageView(image = fp)
+                                                    is TableNode -> WordPageTableView(
+                                                        table = fp,
+                                                        defaultTextColor = defaultInkColor.copy(alpha = 0.65f),
+                                                        highlightQuery = searchQuery,
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1205,7 +1223,7 @@ private fun WordPageImageView(
         else -> Alignment.Center
     }
     // Proportional width relative to standard 487pt content width
-    val widthFraction = (image.widthPt / 487f).coerceIn(0.25f, 1.0f)
+    val widthFraction = (image.widthPt / 487f).coerceIn(0.08f, 1.0f)
     val aspect = if (image.widthPt > 0 && image.heightPt > 0) {
         (image.widthPt.toFloat() / image.heightPt.toFloat()).coerceIn(0.25f, 5.0f)
     } else if (bmp != null && bmp.height > 0) {

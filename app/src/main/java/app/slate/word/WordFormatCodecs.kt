@@ -217,23 +217,63 @@ object WordFormatCodecs {
         val marginTopPt = (pgMar?.attr("top")?.toFloatOrNull()?.div(TWIPS_PER_PT) ?: 54f).coerceIn(18f, 120f)
         val marginBottomPt = (pgMar?.attr("bottom")?.toFloatOrNull()?.div(TWIPS_PER_PT) ?: 54f).coerceIn(18f, 120f)
 
-        // Parse headers & footers if present
-        val headerParas = ArrayList<ParagraphNode>()
-        val footerParas = ArrayList<ParagraphNode>()
+        // Parse headers & footers if present (including images/logos like university emblems)
+        val headerElements = ArrayList<DocElement>()
+        val footerElements = ArrayList<DocElement>()
         val headerPaths = entries.keys.filter { it.matches(Regex("word/header\\d*\\.xml")) }.sorted()
         val footerPaths = entries.keys.filter { it.matches(Regex("word/footer\\d*\\.xml")) }.sorted()
         headerPaths.firstOrNull()?.let { hp ->
-            parseXmlTree(entries[hp]!!)?.findAll("p")?.forEach { pNode ->
-                val parsed = parseDomParagraph(pNode, docDefaults, styleMap, themeColors, numberingDefs, listCounters, relMap, entries)
-                headerParas.addAll(parsed.filterIsInstance<ParagraphNode>().filter { it.plainText.isNotBlank() })
+            val headerXml = entries[hp]
+            if (headerXml != null) {
+                val headerNum = hp.removePrefix("word/header").removeSuffix(".xml")
+                val hRelsPath = "word/_rels/header$headerNum.xml.rels"
+                val headerRelMap = parseDocxRels(entries[hRelsPath], "word")
+                parseXmlTree(headerXml)?.let { hRoot ->
+                    fun walkHeader(node: XmlNode) {
+                        for (child in node.children) {
+                            when (child.name) {
+                                "p" -> {
+                                    val parsed = parseDomParagraph(child, docDefaults, styleMap, themeColors, numberingDefs, listCounters, headerRelMap, entries)
+                                    headerElements.addAll(parsed)
+                                }
+                                "tbl" -> {
+                                    headerElements.add(parseDomTable(child, docDefaults, styleMap, themeColors, numberingDefs, listCounters, headerRelMap, entries))
+                                }
+                                else -> walkHeader(child)
+                            }
+                        }
+                    }
+                    walkHeader(hRoot)
+                }
             }
         }
         footerPaths.firstOrNull()?.let { fp ->
-            parseXmlTree(entries[fp]!!)?.findAll("p")?.forEach { pNode ->
-                val parsed = parseDomParagraph(pNode, docDefaults, styleMap, themeColors, numberingDefs, listCounters, relMap, entries)
-                footerParas.addAll(parsed.filterIsInstance<ParagraphNode>().filter { it.plainText.isNotBlank() })
+            val footerXml = entries[fp]
+            if (footerXml != null) {
+                val footerNum = fp.removePrefix("word/footer").removeSuffix(".xml")
+                val fRelsPath = "word/_rels/footer$footerNum.xml.rels"
+                val footerRelMap = parseDocxRels(entries[fRelsPath], "word")
+                parseXmlTree(footerXml)?.let { fRoot ->
+                    fun walkFooter(node: XmlNode) {
+                        for (child in node.children) {
+                            when (child.name) {
+                                "p" -> {
+                                    val parsed = parseDomParagraph(child, docDefaults, styleMap, themeColors, numberingDefs, listCounters, footerRelMap, entries)
+                                    footerElements.addAll(parsed)
+                                }
+                                "tbl" -> {
+                                    footerElements.add(parseDomTable(child, docDefaults, styleMap, themeColors, numberingDefs, listCounters, footerRelMap, entries))
+                                }
+                                else -> walkFooter(child)
+                            }
+                        }
+                    }
+                    walkFooter(fRoot)
+                }
             }
         }
+        val headerParas = headerElements.filterIsInstance<ParagraphNode>().filter { it.plainText.isNotBlank() }
+        val footerParas = footerElements.filterIsInstance<ParagraphNode>().filter { it.plainText.isNotBlank() }
 
         // Walk body elements in document order
         val elements = ArrayList<DocElement>()
@@ -287,6 +327,8 @@ object WordFormatCodecs {
             sourceFormat = DocFormat.DOCX,
             headerParagraphs = headerParas,
             footerParagraphs = footerParas,
+            headerElements = headerElements,
+            footerElements = footerElements,
             pageBackgroundArgb = pageBgArgb,
             pageWidthPt = pageWidthPt,
             pageHeightPt = pageHeightPt,
@@ -888,6 +930,21 @@ object WordFormatCodecs {
                         val branch = child.child("Choice") ?: child.child("Fallback")
                         branch?.let { walkInline(it, inheritedRunStyle) }
                     }
+                    "drawing", "pict", "object" -> {
+                        extractDrawingImagesAndTextBoxes(
+                            drawingNode = child,
+                            paraAlign = align,
+                            docDefaults = docDefaults,
+                            styleMap = styleMap,
+                            themeColors = themeColors,
+                            numberingDefs = numberingDefs,
+                            listCounters = listCounters,
+                            relMap = relMap,
+                            entries = entries,
+                            outImages = images,
+                            outTextBoxes = textBoxElements,
+                        )
+                    }
                 }
             }
         }
@@ -985,17 +1042,27 @@ object WordFormatCodecs {
             }
             if (node.name == "blip" || node.name == "imagedata") {
                 val rId = node.attr("embed") ?: node.attr("r:embed") ?: node.attr("id") ?: node.attr("r:id")
+                    ?: node.attr("relid") ?: node.attr("o:relid") ?: node.attr("src") ?: node.attr("href")
                 val target = rId?.let { relMap[it] }
-                val imgBytes = target?.let { entries[it] }
+                val imgBytes = Zip.findEntry(entries, target)
+                    ?: target?.let { Zip.findEntry(entries, "word/$it") }
+                    ?: target?.let { Zip.findEntry(entries, it.substringAfterLast('/')) }
                 if (imgBytes != null) {
                     val extent = drawingNode.findFirst("extent") ?: drawingNode.findFirst("ext")
                     val cxEmu = extent?.attr("cx")?.toFloatOrNull()
                     val cyEmu = extent?.attr("cy")?.toFloatOrNull()
-                    val wPt = cxEmu?.div(EMU_PER_PT)?.roundToInt()?.coerceIn(32, 520) ?: 380
-                    val hPt = cyEmu?.div(EMU_PER_PT)?.roundToInt()?.coerceIn(24, 680) ?: 220
-                    val mime = if (target.endsWith(".jpg", true) || target.endsWith(".jpeg", true)) "image/jpeg" else "image/png"
+                    var wPt = cxEmu?.div(EMU_PER_PT)?.roundToInt()?.coerceIn(24, 520) ?: 380
+                    var hPt = cyEmu?.div(EMU_PER_PT)?.roundToInt()?.coerceIn(20, 680) ?: 220
+                    val styleAttr = node.attr("style") ?: drawingNode.findFirst("shape")?.attr("style")
+                    if (cxEmu == null && styleAttr != null) {
+                        val wMatch = Regex("""width:\s*([\d.]+)\s*pt""").find(styleAttr)
+                        val hMatch = Regex("""height:\s*([\d.]+)\s*pt""").find(styleAttr)
+                        wMatch?.groupValues?.getOrNull(1)?.toFloatOrNull()?.roundToInt()?.let { wPt = it.coerceIn(24, 520) }
+                        hMatch?.groupValues?.getOrNull(1)?.toFloatOrNull()?.roundToInt()?.let { hPt = it.coerceIn(20, 680) }
+                    }
+                    val mime = if (target?.endsWith(".jpg", true) == true || target?.endsWith(".jpeg", true) == true) "image/jpeg" else "image/png"
                     val docPr = drawingNode.findFirst("docPr")
-                    val descr = docPr?.attr("descr") ?: docPr?.attr("title") ?: ""
+                    val descr = docPr?.attr("descr") ?: docPr?.attr("title") ?: node.attr("title") ?: ""
                     outImages.add(
                         ImageNode(
                             bytes = imgBytes,

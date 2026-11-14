@@ -208,6 +208,8 @@ data class WordDocument(
     val sourceFormat: DocFormat = DocFormat.DOCX,
     val headerParagraphs: List<ParagraphNode> = emptyList(),
     val footerParagraphs: List<ParagraphNode> = emptyList(),
+    val headerElements: List<DocElement> = emptyList(),
+    val footerElements: List<DocElement> = emptyList(),
     val pageBackgroundArgb: Int = 0xFFFFFFFF.toInt(),
     val pageWidthPt: Float = 595f,
     val pageHeightPt: Float = 842f,
