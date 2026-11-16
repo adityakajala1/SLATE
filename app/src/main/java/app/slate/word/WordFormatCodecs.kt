@@ -2016,6 +2016,86 @@ object WordFormatCodecs {
     }
 
     // --------------------------------------------------------- PDF & THUMBNAIL RENDERING
+    private class WordPdfSession(
+        val pdf: PdfDocument,
+        val pageW: Int,
+        val pageH: Int,
+        val marginL: Float,
+        val marginR: Float,
+        val marginT: Float,
+        val marginB: Float,
+        val bgArgb: Int,
+        val headerElements: List<DocElement> = emptyList(),
+        val footerElements: List<DocElement> = emptyList(),
+    ) {
+        var pageNum = 1
+        var page: PdfDocument.Page = pdf.startPage(PdfDocument.PageInfo.Builder(pageW, pageH, pageNum).create())
+        var canvas: Canvas = page.canvas
+        var y: Float = marginT
+
+        init {
+            canvas.drawColor(bgArgb)
+            drawHeaders()
+        }
+
+        private fun drawHeaders() {
+            if (headerElements.isNotEmpty()) {
+                var hy = 24f
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0xFF64748B.toInt()
+                    textSize = 9f
+                }
+                for (hel in headerElements) {
+                    when (hel) {
+                        is ParagraphNode -> {
+                            val txt = hel.plainText.trim()
+                            if (txt.isNotEmpty()) {
+                                canvas.drawText(txt, marginL, hy, paint)
+                                hy += 12f
+                            }
+                        }
+                        is ImageNode -> {
+                            val bmp = hel.decodeBitmap(600)
+                            if (bmp != null) {
+                                val dw = hel.widthPt.toFloat().coerceIn(16f, 120f)
+                                val dh = (dw * (bmp.height.toFloat() / bmp.width.coerceAtLeast(1))).coerceIn(16f, 40f)
+                                canvas.drawBitmap(bmp, null, RectF(marginL, hy - dh + 8f, marginL + dw, hy + 8f), Paint(Paint.FILTER_BITMAP_FLAG))
+                                hy += dh + 4f
+                            }
+                        }
+                        else -> {}
+                    }
+                }
+            }
+        }
+
+        fun ensureSpace(neededHeight: Float, maxY: Float) {
+            if (y + neededHeight > maxY) {
+                nextPage()
+            }
+        }
+
+        fun nextPage() {
+            drawFooter()
+            pdf.finishPage(page)
+            pageNum++
+            page = pdf.startPage(PdfDocument.PageInfo.Builder(pageW, pageH, pageNum).create())
+            canvas = page.canvas
+            canvas.drawColor(bgArgb)
+            y = marginT
+            drawHeaders()
+        }
+
+        private fun drawFooter() {
+            drawPageFooter(canvas, pageW, pageH, pageNum)
+        }
+
+        fun finish() {
+            drawFooter()
+            pdf.finishPage(page)
+        }
+    }
+
     fun renderPdf(doc: WordDocument, out: OutputStream, onProgress: (Float) -> Unit = {}) {
         val pageW = doc.pageWidthPt.roundToInt().coerceAtLeast(595)
         val pageH = doc.pageHeightPt.roundToInt().coerceAtLeast(842)
@@ -2026,23 +2106,19 @@ object WordFormatCodecs {
         val contentW = (pageW - marginL - marginR).coerceAtLeast(200f)
 
         val pdf = PdfDocument()
+        val session = WordPdfSession(
+            pdf = pdf,
+            pageW = pageW,
+            pageH = pageH,
+            marginL = marginL,
+            marginR = marginR,
+            marginT = marginT,
+            marginB = marginB,
+            bgArgb = doc.pageBackgroundArgb,
+            headerElements = doc.headerElements,
+            footerElements = doc.footerElements,
+        )
         try {
-            var pageNum = 1
-            var page = pdf.startPage(PdfDocument.PageInfo.Builder(pageW, pageH, pageNum).create())
-            var canvas = page.canvas
-            canvas.drawColor(doc.pageBackgroundArgb)
-            var y = marginT
-
-            fun nextPage() {
-                drawPageFooter(canvas, pageW, pageH, pageNum)
-                pdf.finishPage(page)
-                pageNum++
-                page = pdf.startPage(PdfDocument.PageInfo.Builder(pageW, pageH, pageNum).create())
-                canvas = page.canvas
-                canvas.drawColor(doc.pageBackgroundArgb)
-                y = marginT
-            }
-
             val total = doc.elements.size.coerceAtLeast(1)
             var numberedIndex = 0
 
@@ -2051,23 +2127,17 @@ object WordFormatCodecs {
                 when (el) {
                     is ParagraphNode -> {
                         if (el.isPageBreakOnly) {
-                            if (y > marginT + 10f) nextPage()
+                            if (session.y > marginT + 10f) session.nextPage()
                             return@forEachIndexed
                         }
-                        if (el.pageBreakBefore && y > marginT + 10f) {
-                            nextPage()
+                        if (el.pageBreakBefore && session.y > marginT + 10f) {
+                            session.nextPage()
                         }
                         if (el.listKind == ListKind.NUMBERED) numberedIndex++ else numberedIndex = 0
-                        y = drawParagraphOnCanvas(canvas, el, marginL, y, contentW, pageH - marginB, numberedIndex) {
-                            nextPage()
-                            y
-                        }
+                        drawParagraphOnSession(session, el, marginL, contentW, pageH - marginB, numberedIndex)
                     }
                     is TableNode -> {
-                        y = drawTableOnCanvas(canvas, el, marginL, y, contentW, pageH - marginB) {
-                            nextPage()
-                            y
-                        }
+                        drawTableOnSession(session, el, marginL, contentW, pageH - marginB)
                     }
                     is ImageNode -> {
                         val bmp = el.decodeBitmap(1200)
@@ -2076,22 +2146,22 @@ object WordFormatCodecs {
                             val ratio = if (el.widthPt > 0 && el.heightPt > 0) el.heightPt.toFloat() / el.widthPt
                             else if (bmp.width > 0) bmp.height.toFloat() / bmp.width else 0.66f
                             val drawH = (drawW * ratio).coerceAtMost(pageH - marginT - marginB - 20f)
-                            if (y + drawH > pageH - marginB) nextPage()
+                            session.ensureSpace(drawH, pageH - marginB)
                             val x = when (el.align) {
                                 ParaAlign.CENTER -> marginL + (contentW - drawW) / 2f
                                 ParaAlign.RIGHT -> marginL + contentW - drawW
                                 else -> marginL
                             }
-                            val dst = RectF(x, y, x + drawW, y + drawH)
-                            canvas.drawBitmap(bmp, null, dst, Paint(Paint.FILTER_BITMAP_FLAG))
-                            y += drawH + 10f
+                            val dst = RectF(x, session.y, x + drawW, session.y + drawH)
+                            session.canvas.drawBitmap(bmp, null, dst, Paint(Paint.FILTER_BITMAP_FLAG))
+                            session.y += drawH + 10f
                         }
                     }
                 }
             }
-            drawPageFooter(canvas, pageW, pageH, pageNum)
-            pdf.finishPage(page)
+            session.finish()
             pdf.writeTo(out)
+            out.flush()
         } finally {
             pdf.close()
         }
@@ -2115,10 +2185,10 @@ object WordFormatCodecs {
                 is ParagraphNode -> {
                     if (el.isPageBreakOnly) continue
                     if (el.listKind == ListKind.NUMBERED) num++ else num = 0
-                    y = drawParagraphOnCanvas(canvas, el, margin, y, contentW, 820f, num) { 820f }
+                    y = drawParagraphStatic(canvas, el, margin, y, contentW, 820f, num)
                 }
                 is TableNode -> {
-                    y = drawTableOnCanvas(canvas, el, margin, y, contentW, 820f) { 820f }
+                    y = drawTableStatic(canvas, el, margin, y, contentW, 820f)
                 }
                 is ImageNode -> break
             }
@@ -2136,7 +2206,109 @@ object WordFormatCodecs {
         canvas.drawText(pageNum.toString(), pageW / 2f, pageH - 22f, paint)
     }
 
-    private fun drawParagraphOnCanvas(
+    private fun drawParagraphOnSession(
+        session: WordPdfSession,
+        para: ParagraphNode,
+        left: Float,
+        width: Float,
+        maxY: Float,
+        numberedIndex: Int,
+    ) {
+        val baseRun = para.runs.firstOrNull()
+        val sizePt = baseRun?.style?.fontSizePt ?: when (para.headingLevel) { 1 -> 20f; 2 -> 15f; 3 -> 13f; else -> 11.5f }
+        val isBold = (baseRun?.style?.bold == true) || para.headingLevel > 0
+        val isItalic = baseRun?.style?.italic == true
+        val tfStyle = when {
+            isBold && isItalic -> Typeface.BOLD_ITALIC
+            isBold -> Typeface.BOLD
+            isItalic -> Typeface.ITALIC
+            else -> Typeface.NORMAL
+        }
+        val baseTf = when (baseRun?.style?.fontFamily) {
+            WordFontFamily.SERIF -> Typeface.SERIF
+            WordFontFamily.MONOSPACE -> Typeface.MONOSPACE
+            else -> Typeface.SANS_SERIF
+        }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = baseRun?.style?.colorArgb ?: 0xFF0F172A.toInt()
+            textSize = sizePt
+            typeface = Typeface.create(baseTf, tfStyle)
+            isUnderlineText = baseRun?.style?.underline == true
+        }
+        val prefix = if (para.listPrefix.isNotEmpty()) para.listPrefix else when (para.listKind) {
+            ListKind.BULLET -> "•  "
+            ListKind.NUMBERED -> "$numberedIndex.  "
+            ListKind.NONE -> ""
+        }
+        val indent = max(para.leftIndentPt, if (para.listKind != ListKind.NONE) 18f else 0f)
+        val fullText = prefix + para.plainText
+        val lineH = sizePt * para.lineSpacingMultiplier.coerceIn(1.1f, 2.0f)
+        session.y += para.spaceBeforePt
+
+        val wrappedLines = wrapText(fullText, paint, (width - indent - para.rightIndentPt).coerceAtLeast(60f))
+        for (line in wrappedLines) {
+            session.ensureSpace(lineH, maxY)
+            val x = when (para.align) {
+                ParaAlign.CENTER -> left + (width - paint.measureText(line)) / 2f
+                ParaAlign.RIGHT -> left + width - para.rightIndentPt - paint.measureText(line)
+                else -> left + indent
+            }
+            session.canvas.drawText(line, x, session.y + sizePt * 0.88f, paint)
+            session.y += lineH
+        }
+        session.y += para.spaceAfterPt
+    }
+
+    private fun drawTableOnSession(
+        session: WordPdfSession,
+        table: TableNode,
+        left: Float,
+        width: Float,
+        maxY: Float,
+    ) {
+        val cols = table.colCount.coerceAtLeast(1)
+        val colFracs = if (table.colWidthFractions.size == cols) table.colWidthFractions else List(cols) { 1f / cols }
+        val rowH = 22f
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 0.8f
+            color = table.borderColorArgb ?: 0xFFCBD5E1.toInt()
+        }
+        val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF0F172A.toInt()
+            textSize = 10.5f
+        }
+        session.y += 4f
+        table.rows.forEachIndexed { rIdx, row ->
+            session.ensureSpace(rowH, maxY)
+            var curX = left
+            for (cIdx in 0 until cols) {
+                val colW = colFracs[cIdx] * width
+                val cell = table.cellAt(rIdx, cIdx)
+                val rect = RectF(curX, session.y, curX + colW, session.y + rowH)
+                val bg = cell.fillArgb ?: if (rIdx == 0 && table.headerRow) 0xFFF1F5F9.toInt() else null
+                if (bg != null) {
+                    fillPaint.color = bg
+                    session.canvas.drawRect(rect, fillPaint)
+                }
+                if (table.hasBorders) {
+                    session.canvas.drawRect(rect, borderPaint)
+                }
+                val txt = row.getOrNull(cIdx).orEmpty().replace('\n', ' ')
+                val firstRun = cell.paragraphs.firstOrNull()?.runs?.firstOrNull()
+                textPaint.color = firstRun?.style?.colorArgb ?: 0xFF0F172A.toInt()
+                textPaint.typeface = if ((firstRun?.style?.bold == true) || (rIdx == 0 && table.headerRow)) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                val clipped = clipToWidth(txt, textPaint, colW - 8f)
+                session.canvas.drawText(clipped, curX + 4f, session.y + 15f, textPaint)
+                curX += colW
+            }
+            session.y += rowH
+        }
+        session.y += 10f
+    }
+
+    private fun drawParagraphStatic(
         canvas: Canvas,
         para: ParagraphNode,
         left: Float,
@@ -2144,7 +2316,6 @@ object WordFormatCodecs {
         width: Float,
         maxY: Float,
         numberedIndex: Int,
-        onNewPage: () -> Float,
     ): Float {
         val baseRun = para.runs.firstOrNull()
         val sizePt = baseRun?.style?.fontSizePt ?: when (para.headingLevel) { 1 -> 20f; 2 -> 15f; 3 -> 13f; else -> 11.5f }
@@ -2179,7 +2350,7 @@ object WordFormatCodecs {
 
         val wrappedLines = wrapText(fullText, paint, (width - indent - para.rightIndentPt).coerceAtLeast(60f))
         for (line in wrappedLines) {
-            if (y + lineH > maxY) y = onNewPage()
+            if (y + lineH > maxY) break
             val x = when (para.align) {
                 ParaAlign.CENTER -> left + (width - paint.measureText(line)) / 2f
                 ParaAlign.RIGHT -> left + width - para.rightIndentPt - paint.measureText(line)
@@ -2191,14 +2362,13 @@ object WordFormatCodecs {
         return y + para.spaceAfterPt
     }
 
-    private fun drawTableOnCanvas(
+    private fun drawTableStatic(
         canvas: Canvas,
         table: TableNode,
         left: Float,
         startY: Float,
         width: Float,
         maxY: Float,
-        onNewPage: () -> Float,
     ): Float {
         val cols = table.colCount.coerceAtLeast(1)
         val colFracs = if (table.colWidthFractions.size == cols) table.colWidthFractions else List(cols) { 1f / cols }
@@ -2215,7 +2385,7 @@ object WordFormatCodecs {
         }
         var y = startY + 4f
         table.rows.forEachIndexed { rIdx, row ->
-            if (y + rowH > maxY) y = onNewPage()
+            if (y + rowH > maxY) return y
             var curX = left
             for (cIdx in 0 until cols) {
                 val colW = colFracs[cIdx] * width

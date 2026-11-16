@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import java.io.File
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -129,6 +130,37 @@ class SaveController internal constructor(
 
     /** Let the user pick the format first (Save As…). */
     fun chooseSaveAs() { showSaveAsPicker = true }
+
+    /** Saves a copy of the current document directly into the device's public Downloads folder. */
+    fun downloadToDevice() {
+        scope.launch {
+            busy = true
+            val uri = withContext(Dispatchers.IO) {
+                val temp = File(DocIO.secureTemp(context), doc.name)
+                try {
+                    temp.outputStream().buffered().use { out ->
+                        kotlinx.coroutines.runBlocking { writer(doc.format, out) }
+                    }
+                    DocIO.saveToDownloads(context, temp, doc.name)
+                } catch (_: Exception) {
+                    DocIO.saveToDownloads(context, doc.uri, doc.name)
+                } finally {
+                    temp.delete()
+                }
+            }
+            busy = false
+            if (uri != null) {
+                toast("Downloaded to Downloads: ${doc.name}")
+            } else {
+                toast("Could not download ${doc.name}")
+            }
+        }
+    }
+
+    /** Shares the current document using Android's system share sheet. */
+    fun share() {
+        app.slate.share.ShareAndPrint.shareDocument(context, doc.uri, doc.name)
+    }
 
     internal fun writeTo(uri: Uri, format: DocFormat) {
         scope.launch {
@@ -310,6 +342,17 @@ fun EditorScaffold(
 
                     actions()
 
+                    IconButton(onClick = { controller.downloadToDevice() }, modifier = Modifier.size(38.dp)) {
+                        Icon(Icons.Outlined.FileDownload, "Download to device", modifier = Modifier.size(20.dp))
+                    }
+
+                    IconButton(
+                        onClick = { controller.share() },
+                        modifier = Modifier.size(38.dp),
+                    ) {
+                        Icon(Icons.Outlined.Share, "Share", modifier = Modifier.size(20.dp))
+                    }
+
                     // Save button (shown in Edit mode or whenever document has unsaved changes)
                     if (isEditMode || controller.dirty) {
                         if (controller.busy) {
@@ -437,6 +480,19 @@ fun EditorScaffold(
                                     )
                                 }
                             }
+                            DropdownMenuItem(
+                                text = { Text("Download to device") },
+                                leadingIcon = { Icon(Icons.Outlined.FileDownload, null) },
+                                onClick = { menuOpen = false; controller.downloadToDevice() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Share") },
+                                leadingIcon = { Icon(Icons.Outlined.Share, null) },
+                                onClick = {
+                                    menuOpen = false
+                                    controller.share()
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Save as / Export…") },
                                 leadingIcon = { Icon(Icons.Outlined.SaveAs, null) },

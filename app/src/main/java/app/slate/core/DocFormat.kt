@@ -36,20 +36,91 @@ enum class DocFormat(
     JPG("jpg", "image/jpeg", DocKind.IMAGE, true, true, "JPEG image");
 
     companion object {
-        private val byExt = entries.associateBy { it.ext } + mapOf("jpeg" to JPG, "text" to TXT, "log" to TXT, "md" to TXT)
+        private val textExtensions = setOf(
+            "txt", "text", "log", "md", "markdown", "mdown",
+            "json", "xml", "html", "htm", "xhtml", "css", "scss", "sass", "less",
+            "js", "jsx", "ts", "tsx", "mjs", "cjs",
+            "py", "pyw", "java", "kt", "kts", "c", "cpp", "cc", "cxx", "h", "hpp", "hh",
+            "cs", "go", "rs", "rb", "php", "sh", "bash", "zsh", "bat", "cmd", "ps1",
+            "yaml", "yml", "toml", "ini", "cfg", "conf", "config", "properties", "env",
+            "sql", "gradle", "diff", "patch", "nfo", "srt", "vtt", "sub", "ass",
+            "tex", "bib", "asc", "me", "1", "man", "rst", "org"
+        )
+        private val sheetExtensions = setOf("xlsx", "xlsm", "xltx", "xltm", "xls", "xlt", "ods", "fods", "ots", "csv", "tsv")
+        private val slidesExtensions = setOf("pptx", "pptm", "potx", "potm", "ppsx", "ppsm", "ppt", "pot", "pps", "odp", "fodp", "otp")
+        private val wordExtensions = setOf("docx", "docm", "dotx", "dotm", "doc", "dot", "odt", "fodt", "ott", "rtf")
+        private val imageExtensions = setOf("png", "jpg", "jpeg", "jpe", "jfif", "webp", "bmp", "gif", "ico", "svg", "tif", "tiff")
+        private val pdfExtensions = setOf("pdf", "fdf", "xfdf")
+
         private val byMime = entries.associateBy { it.mime } + mapOf(
-            "text/rtf" to RTF, "text/comma-separated-values" to CSV, "application/csv" to CSV,
-            "image/jpg" to JPG, "application/x-pdf" to PDF,
+            "text/rtf" to RTF,
+            "text/comma-separated-values" to CSV,
+            "application/csv" to CSV,
+            "image/jpg" to JPG,
+            "image/jpeg" to JPG,
+            "image/webp" to PNG,
+            "image/bmp" to PNG,
+            "image/x-ms-bmp" to PNG,
+            "image/gif" to PNG,
+            "image/svg+xml" to PNG,
+            "application/x-pdf" to PDF,
+            "application/json" to TXT,
+            "application/xml" to TXT,
+            "text/xml" to TXT,
+            "text/html" to TXT,
+            "text/markdown" to TXT,
+            "text/x-markdown" to TXT,
+            "application/x-sh" to TXT,
+            "application/x-yaml" to TXT,
+            "text/yaml" to TXT,
+            "text/x-python" to TXT,
+            "text/x-java-source" to TXT,
+            "text/x-c" to TXT,
+            "text/x-c++" to TXT,
         )
 
         fun fromName(name: String?): DocFormat? {
             if (name == null) return null
-            val dot = name.lastIndexOf('.')
-            if (dot < 0 || dot == name.length - 1) return null
-            return byExt[name.substring(dot + 1).lowercase(Locale.ROOT)]
+            val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+            if (ext.isEmpty()) return null
+            return when {
+                ext in pdfExtensions -> PDF
+                ext in wordExtensions -> when {
+                    ext.startsWith("doc") && !ext.endsWith("x") && !ext.endsWith("m") -> DOC
+                    ext.contains("odt") || ext.contains("ott") -> ODT
+                    ext == "rtf" -> RTF
+                    else -> DOCX
+                }
+                ext in sheetExtensions -> when {
+                    ext == "xls" || ext == "xlt" -> XLS
+                    ext.contains("ods") || ext.contains("ots") -> ODS
+                    ext == "csv" || ext == "tsv" -> CSV
+                    else -> XLSX
+                }
+                ext in slidesExtensions -> when {
+                    ext == "ppt" || ext == "pot" || ext == "pps" -> PPT
+                    ext.contains("odp") || ext.contains("otp") -> ODP
+                    else -> PPTX
+                }
+                ext in imageExtensions -> when {
+                    ext in setOf("jpg", "jpeg", "jpe", "jfif") -> JPG
+                    else -> PNG
+                }
+                ext in textExtensions -> TXT
+                else -> null
+            }
         }
 
-        fun fromMime(mime: String?): DocFormat? = mime?.let { byMime[it.lowercase(Locale.ROOT)] }
+        fun fromMime(mime: String?): DocFormat? {
+            if (mime == null) return null
+            val lower = mime.lowercase(Locale.ROOT)
+            byMime[lower]?.let { return it }
+            return when {
+                lower.startsWith("text/") -> TXT
+                lower.startsWith("image/") -> if (lower.contains("jpeg") || lower.contains("jpg")) JPG else PNG
+                else -> null
+            }
+        }
 
         fun detect(name: String?, mime: String?): DocFormat? = fromName(name) ?: fromMime(mime)
 

@@ -264,6 +264,10 @@ fun ConvertScreen() {
                                             out = out,
                                             progress = { p -> progress = p.coerceIn(0f, 1f) },
                                         )
+                                        out.flush()
+                                    }
+                                    if (outFile.length() == 0L) {
+                                        throw app.slate.core.DocumentException("Conversion failed: output file is empty (0 bytes)")
                                     }
                                 }
                             }
@@ -333,8 +337,26 @@ fun ConvertScreen() {
                 }
                 Spacer(Modifier.height(14.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val savedUri = withContext(Dispatchers.IO) { DocIO.saveToDownloads(context, outFile) }
+                                if (savedUri != null) {
+                                    Toast.makeText(context, "Downloaded to Downloads folder: ${outFile.name}", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Could not save to Downloads", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Outlined.FileDownload, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Download")
+                    }
                     if (convertedFormat?.kind != app.slate.core.DocKind.IMAGE) {
-                        Button(
+                        OutlinedButton(
                             onClick = { DocumentActivity.open(context, Uri.fromFile(outFile)) },
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f),

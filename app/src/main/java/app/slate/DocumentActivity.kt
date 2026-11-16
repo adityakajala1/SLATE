@@ -30,6 +30,7 @@ import app.slate.pdf.PdfViewerScreen
 import app.slate.sheet.SheetEditorScreen
 import app.slate.slides.SlidesEditorScreen
 import app.slate.ui.FollowDeveloperDialog
+import app.slate.ui.ImageViewerScreen
 import app.slate.ui.components.ErrorState
 import app.slate.ui.components.LoadingState
 import app.slate.ui.theme.Slate
@@ -111,7 +112,8 @@ class DocumentActivity : ComponentActivity() {
             DocKind.WORD -> WordEditorScreen(doc, close)
             DocKind.SHEET -> SheetEditorScreen(doc, close)
             DocKind.SLIDES -> SlidesEditorScreen(doc, close)
-            else -> ErrorState("Unsupported file", "SLATE can't open ${doc.name}. Try the Convert tab for images.", onClose = close)
+            DocKind.IMAGE -> ImageViewerScreen(doc, close)
+            else -> WordEditorScreen(doc.copy(format = DocFormat.TXT), close)
         }
     }
 
@@ -125,9 +127,9 @@ class DocumentActivity : ComponentActivity() {
         val info = runCatching { DocIO.info(this@DocumentActivity, uri) }.getOrElse {
             return@withContext State.Error("Can't access file", "SLATE no longer has permission to open this file. Open it again from its folder.")
         }
-        val format = DocFormat.detect(info.name, info.mime)?.takeIf { it.kind != DocKind.IMAGE }
+        val format = DocFormat.detect(info.name, info.mime)
             ?: FormatSniffer.sniff { DocIO.open(this@DocumentActivity, uri) }
-            ?: return@withContext State.Error("Unsupported file", "\"${info.name}\" isn't a document format SLATE supports.")
+            ?: DocFormat.TXT
         // Verify we can actually read it before showing an editor.
         runCatching { DocIO.open(this@DocumentActivity, uri).close() }.onFailure {
             return@withContext State.Error("Can't open file", "The file is unavailable or access was revoked. (${it.message})")

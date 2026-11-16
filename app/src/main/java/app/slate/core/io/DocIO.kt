@@ -1,10 +1,15 @@
 package app.slate.core.io
 
 import android.content.ContentResolver
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import app.slate.core.DocFormat
@@ -109,6 +114,54 @@ object DocIO {
     }
 
     fun mimeOf(format: DocFormat?) = format?.mime ?: "application/octet-stream"
+
+    /**
+     * Saves a file directly to the device's public Downloads directory,
+     * making it immediately accessible in file managers and notification tray.
+     */
+    fun saveToDownloads(context: Context, sourceFile: File, displayName: String = sourceFile.name): Uri? {
+        return try {
+            val mime = DocFormat.fromName(displayName)?.mime ?: "application/octet-stream"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                    put(MediaStore.Downloads.MIME_TYPE, mime)
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val resolver = context.contentResolver
+                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+                resolver.openOutputStream(uri)?.use { out ->
+                    sourceFile.inputStream().use { it.copyTo(out) }
+                }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+                uri
+            } else {
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                downloadsDir.mkdirs()
+                val targetFile = uniqueFile(downloadsDir, displayName)
+                sourceFile.copyTo(targetFile, overwrite = true)
+                MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), arrayOf(mime), null)
+                Uri.fromFile(targetFile)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    fun saveToDownloads(context: Context, sourceUri: Uri, displayName: String): Uri? {
+        val temp = File(secureTemp(context), displayName)
+        return try {
+            open(context, sourceUri).use { input ->
+                temp.outputStream().use { output -> input.copyTo(output) }
+            }
+            saveToDownloads(context, temp, displayName)
+        } finally {
+            temp.delete()
+        }
+    }
 }
 
 /**

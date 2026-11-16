@@ -73,6 +73,13 @@
                 <data android:mimeType="application/rtf" />
                 <data android:mimeType="text/rtf" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="text/xml" />
+                <data android:mimeType="text/html" />
+                <data android:mimeType="text/markdown" />
                 <data android:mimeType="application/vnd.ms-excel" />
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
                 <data android:mimeType="application/vnd.oasis.opendocument.spreadsheet" />
@@ -102,6 +109,21 @@
                 <data android:pathPattern=".*\\.pptx" />
                 <data android:pathPattern=".*\\.ppt" />
                 <data android:pathPattern=".*\\.odp" />
+                <data android:pathPattern=".*\\.txt" />
+                <data android:pathPattern=".*\\.text" />
+                <data android:pathPattern=".*\\.log" />
+                <data android:pathPattern=".*\\.md" />
+                <data android:pathPattern=".*\\.json" />
+                <data android:pathPattern=".*\\.xml" />
+                <data android:pathPattern=".*\\.html" />
+                <data android:pathPattern=".*\\.htm" />
+                <data android:pathPattern=".*\\.py" />
+                <data android:pathPattern=".*\\.java" />
+                <data android:pathPattern=".*\\.kt" />
+                <data android:pathPattern=".*\\.png" />
+                <data android:pathPattern=".*\\.jpg" />
+                <data android:pathPattern=".*\\.jpeg" />
+                <data android:pathPattern=".*\\.webp" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -112,6 +134,8 @@
                 <data android:mimeType="application/vnd.oasis.opendocument.text" />
                 <data android:mimeType="application/rtf" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="image/*" />
                 <data android:mimeType="application/vnd.ms-excel" />
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
                 <data android:mimeType="application/vnd.oasis.opendocument.spreadsheet" />

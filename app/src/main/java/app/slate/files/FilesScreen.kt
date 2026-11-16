@@ -433,6 +433,25 @@ fun FilesScreen(
                         ) {
                             Icon(Icons.Outlined.Share, null); Spacer(Modifier.width(12.dp)); Text("Share", Modifier.weight(1f))
                         }
+                        TextButton(
+                            onClick = {
+                                actionMenuTarget = null
+                                scope.launch {
+                                    val uri = withContext(Dispatchers.IO) {
+                                        if (target.file != null) DocIO.saveToDownloads(context, target.file)
+                                        else DocIO.saveToDownloads(context, target.uri, target.name)
+                                    }
+                                    if (uri != null) {
+                                        Toast.makeText(context, "Downloaded to Downloads: ${target.name}", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        Toast.makeText(context, "Failed to download ${target.name}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Outlined.FileDownload, null); Spacer(Modifier.width(12.dp)); Text("Download to device", Modifier.weight(1f))
+                        }
                     }
                     TextButton(
                         onClick = {
